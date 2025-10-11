@@ -26,6 +26,14 @@
   ],
   "author": "will-work-for-meal",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/will-work-for-meal/node-wreq.git"
+  },
+  "bugs": {
+    "url": "https://github.com/will-work-for-meal/node-wreq/issues"
+  },
+  "homepage": "https://github.com/will-work-for-meal/node-wreq#readme",
   "dependencies": {},
   "devDependencies": {
     "@types/node": "^20.0.0",

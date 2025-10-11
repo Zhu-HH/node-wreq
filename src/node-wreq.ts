@@ -10,17 +10,18 @@ function loadNativeBinding() {
   const platform = process.platform;
   const arch = process.arch;
 
-  // Map Node.js platform/arch to napi binary naming convention
+  // Map Node.js platform/arch to Rust target triple suffixes
+  // napi-rs creates files like: node-wreq.linux-x64-gnu.node
   const platformArchMap: Record<string, Record<string, string>> = {
     darwin: {
       x64: 'darwin-x64',
       arm64: 'darwin-arm64',
     },
     linux: {
-      x64: 'linux-x64',
+      x64: 'linux-x64-gnu',
     },
     win32: {
-      x64: 'win32-x64',
+      x64: 'win32-x64-msvc',
     },
   };
 
@@ -32,7 +33,7 @@ function loadNativeBinding() {
     );
   }
 
-  // Try to load platform-specific binary (napi naming convention)
+  // Try to load platform-specific binary
   const binaryName = `node-wreq.${platformArch}.node`;
 
   try {
