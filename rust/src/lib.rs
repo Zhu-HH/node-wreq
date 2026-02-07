@@ -1,15 +1,18 @@
 mod client;
 mod websocket;
 
+use client::{make_request, RequestOptions, Response};
+use futures_util::StreamExt;
 use neon::prelude::*;
 use neon::types::buffer::TypedArray;
-use client::{make_request, RequestOptions, Response};
-use websocket::{connect_websocket, store_connection, get_connection, remove_connection, WebSocketOptions, WS_RUNTIME};
 use std::collections::HashMap;
 use std::sync::Arc;
-use wreq_util::Emulation;
-use futures_util::StreamExt;
+use websocket::{
+    connect_websocket, get_connection, remove_connection, store_connection, WebSocketOptions,
+    WS_RUNTIME,
+};
 use wreq::ws::message::Message;
+use wreq_util::Emulation;
 
 // Parse browser string to Emulation enum
 fn parse_emulation(browser: &str) -> Emulation {
@@ -44,12 +47,26 @@ fn parse_emulation(browser: &str) -> Emulation {
         "chrome_135" => Emulation::Chrome135,
         "chrome_136" => Emulation::Chrome136,
         "chrome_137" => Emulation::Chrome137,
+        "chrome_138" => Emulation::Chrome138,
+        "chrome_139" => Emulation::Chrome139,
+        "chrome_140" => Emulation::Chrome140,
+        "chrome_141" => Emulation::Chrome141,
+        "chrome_142" => Emulation::Chrome142,
+        "chrome_143" => Emulation::Chrome143,
         // Edge
         "edge_101" => Emulation::Edge101,
         "edge_122" => Emulation::Edge122,
         "edge_127" => Emulation::Edge127,
         "edge_131" => Emulation::Edge131,
         "edge_134" => Emulation::Edge134,
+        "edge_135" => Emulation::Edge135,
+        "edge_136" => Emulation::Edge136,
+        "edge_137" => Emulation::Edge137,
+        "edge_138" => Emulation::Edge138,
+        "edge_139" => Emulation::Edge134,
+        "edge_140" => Emulation::Edge140,
+        "edge_141" => Emulation::Edge141,
+        "edge_142" => Emulation::Edge142,
         // Safari
         "safari_ios_17_2" => Emulation::SafariIos17_2,
         "safari_ios_17_4_1" => Emulation::SafariIos17_4_1,
@@ -70,6 +87,14 @@ fn parse_emulation(browser: &str) -> Emulation {
         "safari_18_3" => Emulation::Safari18_3,
         "safari_18_3_1" => Emulation::Safari18_3_1,
         "safari_18_5" => Emulation::Safari18_5,
+        "safari_26" => Emulation::Safari26,
+        "safari_26_1" => Emulation::Safari26_1,
+        "safari_26_2" => Emulation::Safari26_2,
+        "safari_ipad_26" => Emulation::SafariIPad26,
+        "safari_ipad_26_2" => Emulation::SafariIpad26_2,
+        "safari_ios_26" => Emulation::SafariIos26,
+        "safari_ios_26_2" => Emulation::SafariIos26_2,
+
         // Firefox
         "firefox_109" => Emulation::Firefox109,
         "firefox_117" => Emulation::Firefox117,
@@ -81,6 +106,11 @@ fn parse_emulation(browser: &str) -> Emulation {
         "firefox_136" => Emulation::Firefox136,
         "firefox_private_136" => Emulation::FirefoxPrivate136,
         "firefox_139" => Emulation::Firefox139,
+        "firefox_142" => Emulation::Firefox142,
+        "firefox_143" => Emulation::Firefox143,
+        "firefox_144" => Emulation::Firefox144,
+        "firefox_145" => Emulation::Firefox145,
+        "firefox_146" => Emulation::Firefox146,
         // Opera
         "opera_116" => Emulation::Opera116,
         "opera_117" => Emulation::Opera117,
@@ -101,7 +131,10 @@ fn parse_emulation(browser: &str) -> Emulation {
 }
 
 // Convert JS object to RequestOptions
-fn js_object_to_request_options(cx: &mut FunctionContext, obj: Handle<JsObject>) -> NeonResult<RequestOptions> {
+fn js_object_to_request_options(
+    cx: &mut FunctionContext,
+    obj: Handle<JsObject>,
+) -> NeonResult<RequestOptions> {
     // Get URL (required)
     let url: Handle<JsString> = obj.get(cx, "url")?;
     let url = url.value(cx);
@@ -169,7 +202,10 @@ fn js_object_to_request_options(cx: &mut FunctionContext, obj: Handle<JsObject>)
 }
 
 // Convert Response to JS object
-fn response_to_js_object<'a, C: Context<'a>>(cx: &mut C, response: Response) -> JsResult<'a, JsObject> {
+fn response_to_js_object<'a, C: Context<'a>>(
+    cx: &mut C,
+    response: Response,
+) -> JsResult<'a, JsObject> {
     let obj = cx.empty_object();
 
     // Status
@@ -182,9 +218,25 @@ fn response_to_js_object<'a, C: Context<'a>>(cx: &mut C, response: Response) -> 
 
     // Headers
     let headers_obj = cx.empty_object();
-    for (key, value) in response.headers {
-        let value_str = cx.string(&value);
-        headers_obj.set(cx, key.as_str(), value_str)?;
+    // for (key, value) in response.headers {
+    //     let value_str = cx.string(&value);
+    //     headers_obj.set(cx, key.as_str(), value_str)?;
+    // }
+    for (key, values) in &response.headers {
+        // 借用 HashMap，避免所有权转移
+        let js_value: Handle<JsValue> = if values.len() == 1 {
+            // 单值：直接转为字符串
+            cx.string(&values[0]).upcast()
+        } else {
+            // 多值：转为 JS 数组
+            let js_array = cx.empty_array();
+            for (i, value) in values.iter().enumerate() {
+                let js_str = cx.string(value);
+                js_array.set(cx, i as u32, js_str)?;
+            }
+            js_array.upcast()
+        };
+        headers_obj.set(cx, key.as_str(), js_value)?;
     }
     obj.set(cx, "headers", headers_obj)?;
 
@@ -242,28 +294,112 @@ fn request(mut cx: FunctionContext) -> JsResult<JsPromise> {
 fn get_profiles(mut cx: FunctionContext) -> JsResult<JsArray> {
     let profiles = vec![
         // Chrome
-        "chrome_100", "chrome_101", "chrome_104", "chrome_105", "chrome_106", "chrome_107",
-        "chrome_108", "chrome_109", "chrome_110", "chrome_114", "chrome_116", "chrome_117",
-        "chrome_118", "chrome_119", "chrome_120", "chrome_123", "chrome_124", "chrome_126",
-        "chrome_127", "chrome_128", "chrome_129", "chrome_130", "chrome_131", "chrome_132",
-        "chrome_133", "chrome_134", "chrome_135", "chrome_136", "chrome_137",
+        "chrome_100",
+        "chrome_101",
+        "chrome_104",
+        "chrome_105",
+        "chrome_106",
+        "chrome_107",
+        "chrome_108",
+        "chrome_109",
+        "chrome_110",
+        "chrome_114",
+        "chrome_116",
+        "chrome_117",
+        "chrome_118",
+        "chrome_119",
+        "chrome_120",
+        "chrome_123",
+        "chrome_124",
+        "chrome_126",
+        "chrome_127",
+        "chrome_128",
+        "chrome_129",
+        "chrome_130",
+        "chrome_131",
+        "chrome_132",
+        "chrome_133",
+        "chrome_134",
+        "chrome_135",
+        "chrome_136",
+        "chrome_137",
+        "chrome_138",
+        "chrome_139",
+        "chrome_140",
+        "chrome_141",
+        "chrome_142",
+        "chrome_143",
         // Edge
-        "edge_101", "edge_122", "edge_127", "edge_131", "edge_134",
+        "edge_101",
+        "edge_122",
+        "edge_127",
+        "edge_131",
+        "edge_134",
+        "edge_135",
+        "edge_136",
+        "edge_137",
+        "edge_138",
+        "edge_139",
+        "edge_140",
+        "edge_141",
+        "edge_142",
         // Safari
-        "safari_ios_17_2", "safari_ios_17_4_1", "safari_ios_16_5",
-        "safari_15_3", "safari_15_5", "safari_15_6_1", "safari_16", "safari_16_5",
-        "safari_17_0", "safari_17_2_1", "safari_17_4_1", "safari_17_5", "safari_18",
-        "safari_ipad_18", "safari_18_2", "safari_ios_18_1_1",
-        "safari_18_3", "safari_18_3_1", "safari_18_5",
+        "safari_ios_17_2",
+        "safari_ios_17_4_1",
+        "safari_ios_16_5",
+        "safari_15_3",
+        "safari_15_5",
+        "safari_15_6_1",
+        "safari_16",
+        "safari_16_5",
+        "safari_17_0",
+        "safari_17_2_1",
+        "safari_17_4_1",
+        "safari_17_5",
+        "safari_18",
+        "safari_ipad_18",
+        "safari_18_2",
+        "safari_ios_18_1_1",
+        "safari_18_3",
+        "safari_18_3_1",
+        "safari_18_5",
+        "safari_26",
+        "safari_26_1",
+        "safari_26_2",
+        "safari_ipad_26",
+        "safari_ipad_26_2",
+        "safari_ios_26",
+        "safari_ios_26_2",
         // Firefox
-        "firefox_109", "firefox_117", "firefox_128", "firefox_133", "firefox_135",
-        "firefox_private_135", "firefox_android_135",
-        "firefox_136", "firefox_private_136", "firefox_139",
+        "firefox_109",
+        "firefox_117",
+        "firefox_128",
+        "firefox_133",
+        "firefox_135",
+        "firefox_private_135",
+        "firefox_android_135",
+        "firefox_136",
+        "firefox_private_136",
+        "firefox_139",
+        "firefox_142",
+        "firefox_143",
+        "firefox_144",
+        "firefox_145",
+        "firefox_146",
         // Opera
-        "opera_116", "opera_117", "opera_118", "opera_119",
+        "opera_116",
+        "opera_117",
+        "opera_118",
+        "opera_119",
         // OkHttp
-        "okhttp_3_9", "okhttp_3_11", "okhttp_3_13", "okhttp_3_14",
-        "okhttp_4_9", "okhttp_4_10", "okhttp_4_12", "okhttp_5",
+        "okhttp_3_9",
+        "okhttp_3_11",
+        "okhttp_3_13",
+        "okhttp_3_14",
+        "okhttp_4_9",
+        "okhttp_4_10",
+        "okhttp_4_12",
+        "okhttp_5",
     ];
 
     let js_array = cx.empty_array();
@@ -318,10 +454,8 @@ fn websocket_connect(mut cx: FunctionContext) -> JsResult<JsPromise> {
 
     // Get callbacks
     let on_message: Handle<JsFunction> = options_obj.get(&mut cx, "onMessage")?;
-    let on_close_opt = options_obj
-        .get_opt::<JsFunction, _, _>(&mut cx, "onClose")?;
-    let on_error_opt = options_obj
-        .get_opt::<JsFunction, _, _>(&mut cx, "onError")?;
+    let on_close_opt = options_obj.get_opt::<JsFunction, _, _>(&mut cx, "onClose")?;
+    let on_error_opt = options_obj.get_opt::<JsFunction, _, _>(&mut cx, "onError")?;
 
     let options = WebSocketOptions {
         url,
@@ -479,13 +613,11 @@ fn websocket_send(mut cx: FunctionContext) -> JsResult<JsPromise> {
             }
         });
 
-        deferred.settle_with(&channel, move |mut cx| {
-            match result {
-                Ok(()) => Ok(cx.undefined()),
-                Err(e) => {
-                    let error_msg = format!("{:#}", e);
-                    cx.throw_error(error_msg)
-                }
+        deferred.settle_with(&channel, move |mut cx| match result {
+            Ok(()) => Ok(cx.undefined()),
+            Err(e) => {
+                let error_msg = format!("{:#}", e);
+                cx.throw_error(error_msg)
             }
         });
     });
@@ -521,13 +653,11 @@ fn websocket_close(mut cx: FunctionContext) -> JsResult<JsPromise> {
         // Remove connection from storage after closing
         remove_connection(id);
 
-        deferred.settle_with(&channel, move |mut cx| {
-            match result {
-                Ok(()) => Ok(cx.undefined()),
-                Err(e) => {
-                    let error_msg = format!("{:#}", e);
-                    cx.throw_error(error_msg)
-                }
+        deferred.settle_with(&channel, move |mut cx| match result {
+            Ok(()) => Ok(cx.undefined()),
+            Err(e) => {
+                let error_msg = format!("{:#}", e);
+                cx.throw_error(error_msg)
             }
         });
     });

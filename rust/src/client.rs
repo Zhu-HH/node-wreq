@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::time::Duration;
 use wreq_util::Emulation;
+use std::collections::hash_map::Entry;
 
 #[derive(Debug, Clone)]
 pub struct RequestOptions {
@@ -17,7 +18,7 @@ pub struct RequestOptions {
 #[derive(Debug, Clone)]
 pub struct Response {
     pub status: u16,
-    pub headers: HashMap<String, String>,
+    pub headers: HashMap<String, Vec<String>>,
     pub body: String,
     pub cookies: HashMap<String, String>,
     pub url: String,
@@ -82,20 +83,48 @@ pub async fn make_request(options: RequestOptions) -> Result<Response> {
     let final_url = response.uri().to_string();
 
     // Extract headers
-    let mut response_headers = HashMap::new();
+    // let mut response_headers = HashMap::new();
+    // for (key, value) in response.headers() {
+    //     if let Ok(value_str) = value.to_str() {
+    //         response_headers.insert(key.to_string(), value_str.to_string());
+    //     }
+    // }
+    let mut response_headers: HashMap<String, Vec<String>> = HashMap::new();
     for (key, value) in response.headers() {
-        if let Ok(value_str) = value.to_str() {
-            response_headers.insert(key.to_string(), value_str.to_string());
+    if let Ok(value_str) = value.to_str() {
+        let key_str = key.to_string();
+        let val = value_str.to_string();
+        match response_headers.entry(key_str) {
+            Entry::Occupied(mut entry) => {
+                entry.get_mut().push(val);
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(vec![val]);
+            }
         }
     }
+}
 
     // Extract cookies
     let mut cookies = HashMap::new();
-    if let Some(cookie_header) = response.headers().get("set-cookie") {
+    // if let Some(cookie_header) = response.headers().get("set-cookie") {
+    //     if let Ok(cookie_str) = cookie_header.to_str() {
+    //         // Simple cookie parsing (name=value)
+    //         for cookie_part in cookie_str.split(';') {
+    //             if let Some((key, value)) = cookie_part.trim().split_once('=') {
+    //                 cookies.insert(key.to_string(), value.to_string());
+    //             }
+    //         }
+    //     }
+    // }
+
+    for cookie_header in response.headers().get_all("set-cookie") {
         if let Ok(cookie_str) = cookie_header.to_str() {
-            // Simple cookie parsing (name=value)
-            for cookie_part in cookie_str.split(';') {
-                if let Some((key, value)) = cookie_part.trim().split_once('=') {
+            // 解析单个Set-Cookie头：第一个部分是name=value，后续是属性
+            let parts: Vec<&str> = cookie_str.split(';').map(|s| s.trim()).collect();
+            if !parts.is_empty() {
+                if let Some((key, value)) = parts[0].split_once('=') {
+                    // 只插入name=value，忽略属性
                     cookies.insert(key.to_string(), value.to_string());
                 }
             }
